@@ -15,20 +15,46 @@ type PreviewRow = {
 };
 
 export default function Home() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
   const [files, setFiles] = useState<File[]>([]);
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingExcel, setLoadingExcel] = useState(false);
+  const [error, setError] = useState("");
 
-  const totalSum = useMemo(
-    () => previewRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
-    [previewRows]
-  );
+  const totalSum = useMemo(() => {
+    return previewRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  }, [previewRows]);
+
+  const totalVat = useMemo(() => {
+    return previewRows.reduce((sum, row) => sum + Number(row.vat || 0), 0);
+  }, [previewRows]);
+
+  const totalWithoutVat = useMemo(() => {
+    return previewRows.reduce(
+      (sum, row) => sum + Number(row.amount_without_vat || 0),
+      0
+    );
+  }, [previewRows]);
 
   const handleFiles = (list: FileList | null) => {
     if (!list) return;
     setFiles(Array.from(list));
     setPreviewRows([]);
+    setError("");
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setPreviewRows([]);
+    setError("");
+  };
+
+  const clearAll = () => {
+    setFiles([]);
+    setPreviewRows([]);
+    setError("");
   };
 
   const buildFormData = () => {
@@ -40,17 +66,23 @@ export default function Home() {
   const handlePreview = async () => {
     if (!files.length) return;
     setLoadingPreview(true);
+    setError("");
+
     try {
-      const res = await fetch("http://localhost:8000/api/preview-receipts", {
+      const res = await fetch(`${API_URL}/api/preview-receipts`, {
         method: "POST",
         body: buildFormData(),
       });
-      if (!res.ok) throw new Error("Не удалось получить предпросмотр");
+
+      if (!res.ok) {
+        throw new Error("Не удалось получить предпросмотр");
+      }
+
       const data = await res.json();
       setPreviewRows(data.rows || []);
     } catch (e) {
-      alert("Ошибка предпросмотра");
       console.error(e);
+      setError("Ошибка предпросмотра. Проверь, запущен ли backend на localhost:8000.");
     } finally {
       setLoadingPreview(false);
     }
@@ -59,12 +91,18 @@ export default function Home() {
   const handleDownload = async () => {
     if (!files.length) return;
     setLoadingExcel(true);
+    setError("");
+
     try {
-      const res = await fetch("http://localhost:8000/api/process-receipts", {
+      const res = await fetch(`${API_URL}/api/process-receipts`, {
         method: "POST",
         body: buildFormData(),
       });
-      if (!res.ok) throw new Error("Не удалось создать Excel");
+
+      if (!res.ok) {
+        throw new Error("Не удалось создать Excel");
+      }
+
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -75,8 +113,8 @@ export default function Home() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      alert("Ошибка при скачивании Excel");
       console.error(e);
+      setError("Ошибка скачивания Excel. Проверь backend и OpenAI API key.");
     } finally {
       setLoadingExcel(false);
     }
@@ -84,27 +122,30 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="max-w-7xl mx-auto p-8">
-        <h1 className="text-3xl font-bold mb-2">Авансовые отчёты AI</h1>
-        <p className="text-slate-600 mb-8">
-          Загрузи чеки, посмотри предпросмотр таблицы и скачай Excel.
-        </p>
+      <div className="mx-auto max-w-7xl p-8">
+        <div className="mb-8">
+          <h1 className="mb-2 text-3xl font-bold">Авансовые отчёты AI</h1>
+          <p className="text-slate-600">
+            Загрузи чеки, получи предпросмотр строк и скачай Excel-файл.
+          </p>
+        </div>
 
-        <div className="bg-white rounded-2xl shadow p-6 mb-6">
-          <label className="block text-sm font-medium mb-2">Загрузка чеков</label>
+        <div className="mb-6 rounded-2xl bg-white p-6 shadow">
+          <label className="mb-2 block text-sm font-medium">Загрузка чеков</label>
+
           <input
             type="file"
             multiple
             accept="image/*"
             onChange={(e) => handleFiles(e.target.files)}
-            className="block w-full border rounded-lg p-3"
+            className="block w-full rounded-lg border p-3"
           />
 
-          <div className="mt-4 flex gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <button
               onClick={handlePreview}
               disabled={!files.length || loadingPreview}
-              className="px-5 py-3 rounded-xl bg-blue-600 text-white disabled:opacity-50"
+              className="rounded-xl bg-blue-600 px-5 py-3 text-white disabled:opacity-50"
             >
               {loadingPreview ? "Обрабатываю..." : "Показать предпросмотр"}
             </button>
@@ -112,56 +153,112 @@ export default function Home() {
             <button
               onClick={handleDownload}
               disabled={!files.length || loadingExcel}
-              className="px-5 py-3 rounded-xl bg-emerald-600 text-white disabled:opacity-50"
+              className="rounded-xl bg-emerald-600 px-5 py-3 text-white disabled:opacity-50"
             >
               {loadingExcel ? "Создаю Excel..." : "Скачать Excel"}
+            </button>
+
+            <button
+              onClick={clearAll}
+              disabled={!files.length}
+              className="rounded-xl bg-slate-300 px-5 py-3 text-slate-800 disabled:opacity-50"
+            >
+              Очистить всё
             </button>
           </div>
 
           <div className="mt-4 text-sm text-slate-500">
             Выбрано файлов: {files.length}
           </div>
+
+          {error && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+              {error}
+            </div>
+          )}
         </div>
 
+        {files.length > 0 && (
+          <div className="mb-6 rounded-2xl bg-white p-6 shadow">
+            <h2 className="mb-4 text-xl font-semibold">Загруженные файлы</h2>
+
+            <div className="space-y-2">
+              {files.map((file, index) => (
+                <div
+                  key={`${file.name}-${index}`}
+                  className="flex items-center justify-between rounded-lg border px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{file.name}</div>
+                    <div className="text-sm text-slate-500">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => removeFile(index)}
+                    className="rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {previewRows.length > 0 && (
-          <div className="bg-white rounded-2xl shadow p-6 overflow-x-auto">
-            <div className="flex items-center justify-between mb-4">
+          <div className="rounded-2xl bg-white p-6 shadow">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-xl font-semibold">Предпросмотр таблицы</h2>
-              <div className="text-sm text-slate-600">
-                Строк: {previewRows.length} • Итого: {totalSum.toFixed(2)}
+
+              <div className="grid grid-cols-1 gap-2 text-sm text-slate-600 sm:grid-cols-3">
+                <div className="rounded-lg bg-slate-100 px-3 py-2">
+                  Без НДС: {totalWithoutVat.toFixed(2)}
+                </div>
+                <div className="rounded-lg bg-slate-100 px-3 py-2">
+                  НДС: {totalVat.toFixed(2)}
+                </div>
+                <div className="rounded-lg bg-slate-100 px-3 py-2">
+                  Итого: {totalSum.toFixed(2)}
+                </div>
               </div>
             </div>
 
-            <table className="min-w-full border border-slate-200 text-sm">
-              <thead className="bg-slate-100">
-                <tr>
-                  <th className="border p-2">№</th>
-                  <th className="border p-2">Дата</th>
-                  <th className="border p-2">Организация</th>
-                  <th className="border p-2">ИНН</th>
-                  <th className="border p-2">Товар / услуга</th>
-                  <th className="border p-2">Без НДС</th>
-                  <th className="border p-2">НДС</th>
-                  <th className="border p-2">Итого</th>
-                  <th className="border p-2">Файл</th>
-                </tr>
-              </thead>
-              <tbody>
-                {previewRows.map((row, index) => (
-                  <tr key={index} className="odd:bg-white even:bg-slate-50">
-                    <td className="border p-2">{row.receipt_no}</td>
-                    <td className="border p-2">{row.date}</td>
-                    <td className="border p-2">{row.organization}</td>
-                    <td className="border p-2">{row.inn}</td>
-                    <td className="border p-2">{row.item_name}</td>
-                    <td className="border p-2 text-right">{row.amount_without_vat}</td>
-                    <td className="border p-2 text-right">{row.vat}</td>
-                    <td className="border p-2 text-right">{row.total}</td>
-                    <td className="border p-2">{row.filename}</td>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border border-slate-200 text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="border p-2">№</th>
+                    <th className="border p-2">Дата</th>
+                    <th className="border p-2">Организация</th>
+                    <th className="border p-2">ИНН</th>
+                    <th className="border p-2">Товар / услуга</th>
+                    <th className="border p-2">Без НДС</th>
+                    <th className="border p-2">НДС</th>
+                    <th className="border p-2">Итого</th>
+                    <th className="border p-2">Файл</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {previewRows.map((row, index) => (
+                    <tr key={index} className="odd:bg-white even:bg-slate-50">
+                      <td className="border p-2">{row.receipt_no}</td>
+                      <td className="border p-2">{row.date}</td>
+                      <td className="border p-2">{row.organization}</td>
+                      <td className="border p-2">{row.inn}</td>
+                      <td className="border p-2">{row.item_name}</td>
+                      <td className="border p-2 text-right">
+                        {row.amount_without_vat}
+                      </td>
+                      <td className="border p-2 text-right">{row.vat}</td>
+                      <td className="border p-2 text-right">{row.total}</td>
+                      <td className="border p-2">{row.filename}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
